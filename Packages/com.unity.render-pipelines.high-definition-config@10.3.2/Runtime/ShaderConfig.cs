@@ -58,13 +58,13 @@ namespace UnityEngine.Rendering.HighDefinition
     public enum ShaderOptions
     {
         /// <summary>Supports colored shadows in shaders.</summary>
-        ColoredShadow = 1,
+        ColoredShadow = 0,
         /// <summary>Uses [camera-relative rendering](../manual/Camera-Relative-Rendering.md) to enhance precision.</summary>
         CameraRelativeRendering = 1,
         /// <summary>Uses pre-exposition to enhance color precision.</summary>
         PreExposition = 1,
         /// <summary>Precomputes atmospheric attenuation for the directional light on the CPU. This makes it independent from the fragment's position, which increases performance but reduces accuracy.</summary>
-        PrecomputedAtmosphericAttenuation = 0,
+        PrecomputedAtmosphericAttenuation = 1,
 
         /// <summary>Maximum number of views for XR.</summary>
 #if ENABLE_VR
@@ -96,7 +96,7 @@ namespace UnityEngine.Rendering.HighDefinition
         ProbeVolumesEncodingMode = ProbeVolumesEncodingModes.SphericalHarmonicsL1,
 
         /// <summary>Support for area lights.</summary>
-        AreaLights = 1,
+        AreaLights = 0,
 
         /// <summary>Support for barn doors.</summary>
         BarnDoor = 0
