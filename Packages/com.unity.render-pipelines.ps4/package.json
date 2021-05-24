@@ -1,0 +1,16 @@
+{
+  "name": "com.unity.render-pipelines.ps4",
+  "description": "Render Pipelines Core files for PS4. This package must be installed to use the core render pipelines on PS4.",
+  "version": "1.2.0",
+  "unity": "2019.3",
+  "displayName": "PS4 Render Pipelines",
+  "dependencies": {},
+  "upmCi": {
+    "footprint": "ccd30d52cfd9b34c3bcdef4112598d865ecce7be"
+  },
+  "repository": {
+    "url": "https://github.cds.internal.unity3d.com/unity/com.unity.render-pipelines.nda.git",
+    "type": "git",
+    "revision": "c63f023d829ca92ae20ce71e897d99afa05a2865"
+  }
+}
