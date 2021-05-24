@@ -224,7 +224,7 @@ MonoBehaviour:
     colorBufferFormat: 74
     supportCustomPass: 0
     customBufferFormat: 12
-    supportedLitShaderMode: 2
+    supportedLitShaderMode: 1
     planarReflectionResolution:
       m_Values: 000100000001000000010000
       m_SchemaId:
