@@ -188,30 +188,6 @@ void LightLoop( float3 V, PositionInputs posInput, PreLightData preLightData, BS
 	context.contactShadowFade = 0;
 	context.contactShadow = 0;
 
-    // First of all we compute the shadow value of the directional light to reduce the VGPR pressure
-    if (featureFlags & LIGHTFEATUREFLAGS_DIRECTIONAL)
-    {
-        // Evaluate sun shadows.
-        if (_DirectionalShadowIndex >= 0)
-        {
-            DirectionalLightData light = _DirectionalLightDatas[_DirectionalShadowIndex];
-            {
-                // TODO: this will cause us to load from the normal buffer first. Does this cause a performance problem?
-                float3 L = -light.forward;
-
-                // Is it worth sampling the shadow map?
-                if ((light.lightDimmer > 0) && (light.shadowDimmer > 0) && // Note: Volumetric can have different dimmer, thus why we test it here
-                    IsNonZeroBSDF(V, L, preLightData, bsdfData) &&
-                    !ShouldEvaluateThickObjectTransmission(V, L, preLightData, bsdfData, light.shadowIndex))
-                {
-                    context.shadowValue = GetDirectionalShadowAttenuation(context.shadowContext,
-                                                                          posInput.positionSS, posInput.positionWS, GetNormalForShadowBias(bsdfData),
-                                                                          light.shadowIndex, L);
-                }
-            }
-        }
-    }
-
     // This struct is define in the material. the Lightloop must not access it
     // PostEvaluateBSDF call at the end will convert Lighting to diffuse and specular lighting
     AggregateLighting aggregateLighting;
