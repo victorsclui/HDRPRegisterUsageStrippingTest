@@ -13,6 +13,71 @@
 #define SCALARIZE_LIGHT_LOOP (defined(PLATFORM_SUPPORTS_WAVE_INTRINSICS) && !defined(LIGHTLOOP_DISABLE_TILE_AND_CLUSTER) && SHADERPASS == SHADERPASS_FORWARD)
 #endif
 
+struct PackedFloat
+{
+	uint3 m_data;
+
+	float3 a() { return float3(f16tof32(m_data.x), f16tof32(m_data.y), f16tof32(m_data.z)); }
+	float3 b() { return float3(f16tof32(m_data.x >> 16), f16tof32(m_data.y >> 16), f16tof32(m_data.z >> 16)); }
+	void pack(float3 a, float3 b)
+	{
+		m_data = uint3(
+			f32tof16(a.x) | (f32tof16(b.x) << 16),
+			f32tof16(a.y) | (f32tof16(b.y) << 16),
+			f32tof16(a.z) | (f32tof16(b.z) << 16)
+			);
+	}
+};
+
+struct DirectLightingH
+{
+	PackedFloat m_data;
+	float3 diffuse() { return m_data.a(); }
+	float3 specular() { return m_data.b(); }
+	void pack(float3 diffuse, float3 specular)
+	{
+		m_data.pack(diffuse, specular);
+	}
+};
+
+struct IndirectLightingH
+{
+	PackedFloat m_data;
+
+	float3 specularReflected() { return m_data.a(); }
+	float3 specularTransmitted() { return m_data.b(); }
+
+	void pack(float3 specularReflected, float3 specularTransmitted)
+	{
+		m_data.pack(specularReflected, specularTransmitted);
+	}
+};
+
+struct AggregateLightingH
+{
+	DirectLightingH direct;
+	IndirectLightingH indirect;
+};
+
+void AccumulateDirectLightingH(DirectLightingH src, inout AggregateLightingH dst)
+{
+	dst.direct.pack(dst.direct.diffuse() + src.diffuse(), dst.direct.specular() + src.specular());
+}
+
+void AccumulateDirectLightingH(DirectLighting src, inout AggregateLightingH dst)
+{
+	dst.direct.pack(dst.direct.diffuse() + src.diffuse, dst.direct.specular() + src.specular);
+}
+
+void AccumulateIndirectLightingH(IndirectLightingH src, inout AggregateLightingH dst)
+{
+	dst.indirect.pack(dst.indirect.specularReflected() + src.specularReflected(), dst.indirect.specularTransmitted() + src.specularTransmitted());
+}
+
+void AccumulateIndirectLightingH(IndirectLighting src, inout AggregateLightingH dst)
+{
+	dst.indirect.pack(dst.indirect.specularReflected() + src.specularReflected, dst.indirect.specularTransmitted() + src.specularTransmitted);
+}
 
 //-----------------------------------------------------------------------------
 // LightLoop
@@ -190,14 +255,14 @@ void LightLoop( float3 V, PositionInputs posInput, PreLightData preLightData, BS
 
     // This struct is define in the material. the Lightloop must not access it
     // PostEvaluateBSDF call at the end will convert Lighting to diffuse and specular lighting
-    AggregateLighting aggregateLighting;
-    ZERO_INITIALIZE(AggregateLighting, aggregateLighting); // LightLoop is in charge of initializing the struct
+    AggregateLightingH aggregateLighting;
+    ZERO_INITIALIZE(AggregateLightingH, aggregateLighting); // LightLoop is in charge of initializing the struct
 
     // Define macro for a better understanding of the loop
     // TODO: this code is now much harder to understand...
 #define EVALUATE_BSDF_ENV_SKY(envLightData, TYPE, type) \
         IndirectLighting lighting = EvaluateBSDF_Env(context, V, posInput, preLightData, envLightData, bsdfData, envLightData.influenceShapeType, MERGE_NAME(GPUIMAGEBASEDLIGHTINGTYPE_, TYPE), MERGE_NAME(type, HierarchyWeight)); \
-        AccumulateIndirectLighting(lighting, aggregateLighting);
+        AccumulateIndirectLightingH(lighting, aggregateLighting);
 
 #define EVALUATE_BSDF_ENV(envLightData, TYPE, type) { EVALUATE_BSDF_ENV_SKY(envLightData, TYPE, type) }
 
@@ -273,7 +338,7 @@ void LightLoop( float3 V, PositionInputs posInput, PreLightData preLightData, BS
         for (i = 0; i < _DirectionalLightCount; ++i)
         {
 			DirectLighting lighting = EvaluateBSDF_Directional(context, V, posInput, preLightData, _DirectionalLightDatas[i], bsdfData, builtinData);
-			AccumulateDirectLighting(lighting, aggregateLighting);
+			AccumulateDirectLightingH(lighting, aggregateLighting);
         }
     }
 
@@ -302,11 +367,17 @@ void LightLoop( float3 V, PositionInputs posInput, PreLightData preLightData, BS
     }
 #endif
 
+	AggregateLighting fullAggregate;
+	fullAggregate.direct.diffuse = aggregateLighting.direct.diffuse();
+	fullAggregate.direct.specular = aggregateLighting.direct.specular();
+	fullAggregate.indirect.specularReflected = aggregateLighting.indirect.specularReflected();
+	fullAggregate.indirect.specularTransmitted = aggregateLighting.indirect.specularTransmitted();
+
     // Note: We can't apply the IndirectDiffuseMultiplier here as with GBuffer, Emissive is part of the bakeDiffuseLighting.
     // so IndirectDiffuseMultiplier is apply in PostInitBuiltinData or related location (like for probe volume)
-    aggregateLighting.indirect.specularReflected *= GetIndirectSpecularMultiplier(builtinData.renderingLayers);
+	fullAggregate.indirect.specularReflected *= GetIndirectSpecularMultiplier(builtinData.renderingLayers);
 
     // Also Apply indiret diffuse (GI)
     // PostEvaluateBSDF will perform any operation wanted by the material and sum everything into diffuseLighting and specularLighting
-    PostEvaluateBSDF(   context, V, posInput, preLightData, bsdfData, builtinData, aggregateLighting, lightLoopOutput);
+    PostEvaluateBSDF(   context, V, posInput, preLightData, bsdfData, builtinData, fullAggregate, lightLoopOutput);
 }
