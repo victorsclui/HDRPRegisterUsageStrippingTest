@@ -185,13 +185,8 @@ void LightLoop( float3 V, PositionInputs posInput, PreLightData preLightData, BS
     context.shadowContext    = InitShadowContext();
     context.shadowValue      = 1;
     context.sampleReflection = 0;
-
-    // With XR single-pass and camera-relative: offset position to do lighting computations from the combined center view (original camera matrix).
-    // This is required because there is only one list of lights generated on the CPU. Shadows are also generated once and shared between the instanced views.
-    ApplyCameraRelativeXR(posInput.positionWS);
-
-    // Initialize the contactShadow and contactShadowFade fields
-    InitContactShadow(posInput, context);
+	context.contactShadowFade = 0;
+	context.contactShadow = 0;
 
     // First of all we compute the shadow value of the directional light to reduce the VGPR pressure
     if (featureFlags & LIGHTFEATUREFLAGS_DIRECTIONAL)
@@ -200,14 +195,6 @@ void LightLoop( float3 V, PositionInputs posInput, PreLightData preLightData, BS
         if (_DirectionalShadowIndex >= 0)
         {
             DirectionalLightData light = _DirectionalLightDatas[_DirectionalShadowIndex];
-
-#if defined(SCREEN_SPACE_SHADOWS_ON) && !defined(_SURFACE_TYPE_TRANSPARENT)
-            if ((light.screenSpaceShadowIndex & SCREEN_SPACE_SHADOW_INDEX_MASK) != INVALID_SCREEN_SPACE_SHADOW)
-            {
-                context.shadowValue = GetScreenSpaceColorShadow(posInput, light.screenSpaceShadowIndex).SHADOW_TYPE_SWIZZLE;
-            }
-            else
-#endif
             {
                 // TODO: this will cause us to load from the normal buffer first. Does this cause a performance problem?
                 float3 L = -light.forward;
@@ -236,14 +223,12 @@ void LightLoop( float3 V, PositionInputs posInput, PreLightData preLightData, BS
         IndirectLighting lighting = EvaluateBSDF_Env(context, V, posInput, preLightData, envLightData, bsdfData, envLightData.influenceShapeType, MERGE_NAME(GPUIMAGEBASEDLIGHTINGTYPE_, TYPE), MERGE_NAME(type, HierarchyWeight)); \
         AccumulateIndirectLighting(lighting, aggregateLighting);
 
-// Environment cubemap test lightlayers, sky don't test it
-#define EVALUATE_BSDF_ENV(envLightData, TYPE, type) if (IsMatchingLightLayer(envLightData.lightLayers, builtinData.renderingLayers)) { EVALUATE_BSDF_ENV_SKY(envLightData, TYPE, type) }
+#define EVALUATE_BSDF_ENV(envLightData, TYPE, type) { EVALUATE_BSDF_ENV_SKY(envLightData, TYPE, type) }
 
     // First loop iteration
     if (featureFlags & (LIGHTFEATUREFLAGS_ENV | LIGHTFEATUREFLAGS_SKY | LIGHTFEATUREFLAGS_SSREFRACTION | LIGHTFEATUREFLAGS_SSREFLECTION))
     {
         float reflectionHierarchyWeight = 0.0; // Max: 1.0
-        float refractionHierarchyWeight = _EnableSSRefraction ? 0.0 : 1.0; // Max: 1.0
 
         uint envLightStart, envLightCount;
 
@@ -260,30 +245,6 @@ void LightLoop( float3 V, PositionInputs posInput, PreLightData preLightData, BS
         uint envStartFirstLane;
         fastPath = IsFastPath(envLightStart, envStartFirstLane);
     #endif
-
-        // Reflection / Refraction hierarchy is
-        //  1. Screen Space Refraction / Reflection
-        //  2. Environment Reflection / Refraction
-        //  3. Sky Reflection / Refraction
-
-        // Apply SSR.
-    #if (defined(_SURFACE_TYPE_TRANSPARENT) && !defined(_DISABLE_SSR_TRANSPARENT)) || (!defined(_SURFACE_TYPE_TRANSPARENT) && !defined(_DISABLE_SSR))
-        {
-            IndirectLighting indirect = EvaluateBSDF_ScreenSpaceReflection(posInput, preLightData, bsdfData,
-                                                                           reflectionHierarchyWeight);
-            AccumulateIndirectLighting(indirect, aggregateLighting);
-        }
-    #endif
-
-        EnvLightData envLightData;
-        if (envLightCount > 0)
-        {
-            envLightData = FetchEnvLight(envLightStart, 0);
-        }
-        else
-        {
-            envLightData = InitSkyEnvLightData(0);
-        }
 
         // Reflection probes are sorted by volume (in the increasing order).
         if (featureFlags & LIGHTFEATUREFLAGS_ENV)
@@ -326,22 +287,6 @@ void LightLoop( float3 V, PositionInputs posInput, PreLightData preLightData, BS
                 }
             }
         }
-
-        // Only apply the sky IBL if the sky texture is available
-        if ((featureFlags & LIGHTFEATUREFLAGS_SKY) && _EnvLightSkyEnabled)
-        {
-            // The sky is a single cubemap texture separate from the reflection probe texture array (different resolution and compression)
-            context.sampleReflection = SINGLE_PASS_CONTEXT_SAMPLE_SKY;
-
-            // The sky data are generated on the fly so the compiler can optimize the code
-            EnvLightData envLightSky = InitSkyEnvLightData(0);
-
-            // Only apply the sky if we haven't yet accumulated enough IBL lighting.
-            if (reflectionHierarchyWeight < 1.0)
-            {
-                EVALUATE_BSDF_ENV_SKY(envLightSky, REFLECTION, reflection);
-            }
-        }
     }
 #undef EVALUATE_BSDF_ENV
 #undef EVALUATE_BSDF_ENV_SKY
@@ -351,11 +296,8 @@ void LightLoop( float3 V, PositionInputs posInput, PreLightData preLightData, BS
     {
         for (i = 0; i < _DirectionalLightCount; ++i)
         {
-            if (IsMatchingLightLayer(_DirectionalLightDatas[i].lightLayers, builtinData.renderingLayers))
-            {
-                DirectLighting lighting = EvaluateBSDF_Directional(context, V, posInput, preLightData, _DirectionalLightDatas[i], bsdfData, builtinData);
-                AccumulateDirectLighting(lighting, aggregateLighting);
-            }
+			DirectLighting lighting = EvaluateBSDF_Directional(context, V, posInput, preLightData, _DirectionalLightDatas[i], bsdfData, builtinData);
+			AccumulateDirectLighting(lighting, aggregateLighting);
         }
     }
 
